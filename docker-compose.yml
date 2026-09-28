@@ -1,0 +1,68 @@
+services:
+  api:
+    build: .
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./app:/code/app
+      - ./scripts:/code/scripts
+    environment:
+      AWS_ENDPOINT_URL: http://ministack:4566
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_DEFAULT_REGION: us-east-1
+      REDIS_URL: redis://redis:6379/0
+      LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash-lite}
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:1.5b}
+    depends_on:
+      redis:
+        condition: service_healthy
+      ministack:
+        condition: service_started
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+
+  ministack:
+    image: ministackorg/ministack
+    ports:
+      - "4566:4566"
+    environment:
+      MINISTACK_REGION: us-east-1
+
+  # Only started with `docker compose --profile ollama up` (LLM_PROVIDER=ollama).
+  ollama:
+    image: ollama/ollama
+    profiles: ["ollama"]
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      retries: 20
+
+  # One-shot: pulls the model into the ollama service and exits.
+  ollama-pull:
+    image: ollama/ollama
+    profiles: ["ollama"]
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["ollama", "pull", "${OLLAMA_MODEL:-qwen2.5:1.5b}"]
+    depends_on:
+      ollama:
+        condition: service_healthy
+
+volumes:
+  ollama-models:
